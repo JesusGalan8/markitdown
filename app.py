@@ -7,61 +7,46 @@ st.set_page_config(page_title="Mi Conversor", page_icon="📄")
 
 st.title("Conversor MarkItDown Privado")
 
-# --- SISTEMA DE SEGURIDAD ---
-# ¡IMPORTANTE! Cambia "1234" por la contraseña que tú quieras usar
-PASSWORD_SECRETA = "1234" 
+st.write("Sube uno o varios documentos (PDF, Word, Excel, PPT, imagen...) y extraeré el texto en Markdown.")
 
-def comprobar_contrasena():
-    if "acceso_concedido" not in st.session_state:
-        st.session_state["acceso_concedido"] = False
+archivos_subidos = st.file_uploader("Arrastra aquí tus archivos", label_visibility="collapsed", accept_multiple_files=True)
 
-    if not st.session_state["acceso_concedido"]:
-        pwd_usuario = st.text_input("Introduce la contraseña para acceder:", type="password")
-        if st.button("Entrar"):
-            if pwd_usuario == PASSWORD_SECRETA:
-                st.session_state["acceso_concedido"] = True
-                st.rerun()
-            else:
-                st.error("Contraseña incorrecta.")
-        return False
-    return True
-# ----------------------------
-
-# Si la contraseña es correcta, mostramos la herramienta
-if comprobar_contrasena():
-    st.write("Sube cualquier documento (PDF, Word, Excel, PPT, imagen...) y extraeré el texto en Markdown.")
+if archivos_subidos:
+    st.info(f"Procesando {len(archivos_subidos)} documento(s)... (puede tardar unos segundos)")
     
-    archivo_subido = st.file_uploader("Arrastra aquí tu archivo", label_visibility="collapsed")
-
-    if archivo_subido is not None:
+    md = MarkItDown()
+    st.success("¡Conversión completada!")
+    
+    for i, archivo_subido in enumerate(archivos_subidos):
         # Guardamos el archivo temporalmente en el servidor
         with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(archivo_subido.name)[1]) as tmp_file:
             tmp_file.write(archivo_subido.getvalue())
             ruta_temporal = tmp_file.name
 
-        st.info("Procesando documento... (puede tardar unos segundos)")
-        
-        md = MarkItDown()
         try:
             # Ejecutamos la conversión
             resultado = md.convert(ruta_temporal)
-            st.success("¡Conversión completada!")
             
-            # Botón para descargar el archivo .md
+            # Nombre del archivo .md a descargar
             nombre_descarga = os.path.splitext(archivo_subido.name)[0] + ".md"
-            st.download_button(
-                label="⬇️ Descargar texto en Markdown",
-                data=resultado.text_content,
-                file_name=nombre_descarga,
-                mime="text/markdown"
-            )
             
-            # Mostramos una vista previa en la web
-            with st.expander("Ver vista previa del texto extraído"):
-                st.code(resultado.text_content, language="markdown")
+            # Creamos una cajita para cada archivo con su botón de descarga
+            with st.container():
+                # Es importante que el parámetro key sea único para cada botón
+                st.download_button(
+                    label=f"⬇️ Descargar {nombre_descarga}",
+                    data=resultado.text_content,
+                    file_name=nombre_descarga,
+                    mime="text/markdown",
+                    key=f"btn_descarga_{i}_{nombre_descarga}"
+                )
+                
+                # Mostramos una vista previa en la web
+                with st.expander(f"Ver vista previa: {nombre_descarga}"):
+                    st.code(resultado.text_content, language="markdown")
             
         except Exception as e:
-            st.error(f"Fallo al leer el documento: {e}")
+            st.error(f"Fallo al leer el documento '{archivo_subido.name}': {e}")
             
         finally:
             # Limpiamos el archivo temporal del servidor
