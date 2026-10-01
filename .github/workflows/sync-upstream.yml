@@ -1,0 +1,65 @@
+name: Sync with upstream (microsoft/markitdown)
+
+on:
+  # Runs automatically every Monday at 9:00 AM UTC
+  schedule:
+    - cron: '0 9 * * 1'
+  # Also allows manual trigger from GitHub UI
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Add upstream remote
+        run: git remote add upstream https://github.com/microsoft/markitdown.git
+
+      - name: Fetch upstream
+        run: git fetch upstream
+
+      - name: Check if update needed
+        id: check
+        run: |
+          BEHIND=$(git rev-list --count HEAD..upstream/main)
+          echo "behind=$BEHIND" >> "$GITHUB_OUTPUT"
+          if [ "$BEHIND" -eq "0" ]; then
+            echo "✅ Already up to date with upstream"
+          else
+            echo "⬆️ $BEHIND commits behind upstream/main"
+          fi
+
+      - name: Merge upstream changes
+        if: steps.check.outputs.behind != '0'
+        run: |
+          # Try normal merge first
+          if git merge upstream/main --no-edit; then
+            echo "✅ Merge completed successfully"
+          else
+            echo "⚠️ Merge conflicts detected - resolving with upstream version"
+            # For any conflicts, accept upstream version
+            CONFLICTED=$(git diff --name-only --diff-filter=U)
+            for file in $CONFLICTED; do
+              git checkout --theirs -- "$file"
+              git add "$file"
+            done
+            git commit --no-edit
+            echo "✅ Merge completed with auto-resolved conflicts"
+          fi
+
+      - name: Push changes
+        if: steps.check.outputs.behind != '0'
+        run: git push origin main
