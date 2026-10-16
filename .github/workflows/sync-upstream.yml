@@ -1,0 +1,83 @@
+name: Sync with upstream (microsoft/markitdown)
+
+on:
+  # Runs automatically every Monday at 9:00 AM UTC
+  schedule:
+    - cron: '0 9 * * 1'
+  # Also allows manual trigger from GitHub UI
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Add upstream remote
+        run: git remote add upstream https://github.com/microsoft/markitdown.git
+
+      - name: Fetch upstream
+        run: git fetch upstream
+
+      - name: Check if update needed
+        id: check
+        run: |
+          BEHIND=$(git rev-list --count HEAD..upstream/main)
+          echo "behind=$BEHIND" >> "$GITHUB_OUTPUT"
+          if [ "$BEHIND" -eq "0" ]; then
+            echo "✅ Already up to date with upstream"
+          else
+            echo "⬆️ $BEHIND commits behind upstream/main"
+          fi
+
+      - name: Save fork-only files
+        if: steps.check.outputs.behind != '0'
+        run: |
+          # Save our custom files before resetting
+          mkdir -p /tmp/fork_files/.github/workflows
+          [ -f app.py ] && cp app.py /tmp/fork_files/app.py || true
+          [ -f requirements.txt ] && cp requirements.txt /tmp/fork_files/requirements.txt || true
+          cp .github/workflows/sync-upstream.yml /tmp/fork_files/.github/workflows/sync-upstream.yml
+          echo "✅ Fork-only files saved"
+
+      - name: Reset to upstream main
+        if: steps.check.outputs.behind != '0'
+        run: |
+          git reset --hard upstream/main
+          echo "✅ Reset to upstream/main"
+
+      - name: Restore fork-only files
+        if: steps.check.outputs.behind != '0'
+        run: |
+          [ -f /tmp/fork_files/app.py ] && cp /tmp/fork_files/app.py app.py || true
+          [ -f /tmp/fork_files/requirements.txt ] && cp /tmp/fork_files/requirements.txt requirements.txt || true
+          cp /tmp/fork_files/.github/workflows/sync-upstream.yml .github/workflows/sync-upstream.yml
+          echo "✅ Fork-only files restored"
+
+      - name: Commit fork changes on top of upstream
+        if: steps.check.outputs.behind != '0'
+        run: |
+          git add -A
+          # Only commit if there are actual changes vs upstream
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: sync with upstream microsoft/markitdown + fork customizations"
+            echo "✅ Committed fork customizations on top of upstream"
+          else
+            echo "ℹ️ No fork customizations to commit (already identical to upstream)"
+          fi
+
+      - name: Push changes
+        if: steps.check.outputs.behind != '0'
+        run: git push --force-with-lease origin main
